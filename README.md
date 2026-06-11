@@ -135,16 +135,190 @@ Tumor Segmentation Output
 
 ## Data Preprocessing
 
-The following preprocessing techniques were implemented:
+**Notebook:** `Datacleaning(1).ipynb`
 
-* Volume–mask verification
-* CT scan normalization
-* Hounsfield Unit (HU) clipping `[-200, 250]`
-* Z-score normalization
-* Removal of non-informative slices
-* 3D patch extraction `(16 × 128 × 128)`
-* Tumor-focused patch selection
-* Data augmentation
+To ensure consistent training and improve segmentation quality, multiple preprocessing and data preparation steps were applied to the **LiTS CT dataset** before model training.
+
+### Steps
+
+#### 1. Load NIfTI Volumes
+
+Medical CT scans and segmentation masks are loaded using the `nibabel` library.
+
+```python
+load_nii(path)
+```
+
+Each `.nii` / `.nii.gz` file is converted into a NumPy array (`float32`) for efficient volumetric processing.
+
+---
+
+#### 2. Volume–Mask Verification
+
+A one-to-one mapping is maintained between CT volumes and segmentation masks.
+
+```text
+volume-X.nii → segmentation-X.nii
+```
+
+Files with missing masks are automatically skipped to prevent training inconsistencies.
+
+---
+
+#### 3. Orientation Correction
+
+LiTS volumes are originally stored in:
+
+```text
+(H, W, D)
+```
+
+All CT volumes and masks are transposed into a depth-first representation:
+
+```text
+(D, H, W)
+```
+
+This ensures compatibility with **3D convolutional neural networks** and volumetric patch extraction.
+
+---
+
+#### 4. Hounsfield Unit (HU) Clipping
+
+CT intensity values are clipped to retain only medically relevant soft-tissue information.
+
+```python
+clip_hu(volume, min_hu=-200, max_hu=250)
+```
+
+HU values outside the range `[-200, 250]` are suppressed to reduce noise from irrelevant anatomical structures such as air and bones.
+
+---
+
+#### 5. Intensity Normalization
+
+Z-score normalization is applied independently to each volume for stable training.
+
+```python
+normalize(volume)
+```
+
+Normalization formula:
+
+```text
+(volume - mean) / (std + 1e-8)
+```
+
+This reduces inter-scan intensity variation and improves model convergence.
+
+---
+
+#### 6. Mask Cleaning
+
+Segmentation masks are converted into unsigned integer format for multi-class segmentation.
+
+```python
+clean_mask(mask)
+```
+
+Classes used:
+
+| Label | Class      |
+| ----- | ---------- |
+| 0     | Background |
+| 1     | Liver      |
+| 2     | Tumor      |
+
+---
+
+#### 7. Removal of Empty Slices
+
+Non-informative slices containing only background pixels are removed.
+
+```python
+remove_empty_slices(volume, mask)
+```
+
+This step:
+
+* Reduces unnecessary computation
+* Mitigates class imbalance
+* Improves training efficiency
+
+Only slices containing liver or tumor annotations are retained.
+
+---
+
+#### 8. Train–Validation Split
+
+A **volume-wise split** is performed using:
+
+```python
+train_test_split()
+```
+
+Configuration:
+
+```text
+Training Set   → 80%
+Validation Set → 20%
+Random Seed    → 42
+```
+
+The split is performed at the **patient volume level** to avoid data leakage between training and validation datasets.
+
+---
+
+#### 9. 3D Patch Extraction
+
+To enable efficient volumetric learning, overlapping **3D patches** are extracted from each CT volume.
+
+```python
+patch_size = (16, 128, 128)
+stride     = (8, 64, 64)
+```
+
+A sliding window extracts patches in three spatial dimensions (`Depth × Height × Width`).
+
+---
+
+#### 10. Tumor-Aware Patch Sampling
+
+To address severe class imbalance, patches are selected using class-aware sampling:
+
+| Patch Content   | Action                       |
+| --------------- | ---------------------------- |
+| Tumor present   | Always included              |
+| Liver present   | Always included              |
+| Background only | Included with 5% probability |
+
+This strategy increases exposure to clinically important tumor regions while reducing redundant background samples.
+
+---
+
+#### 11. Dataset Generation
+
+Extracted patches are stored as NumPy arrays for faster model training.
+
+```python
+np.save("X_train.npy", X_train)
+np.save("Y_train.npy", Y_train)
+
+np.save("X_val.npy", X_val)
+np.save("Y_val.npy", Y_val)
+```
+
+Generated outputs:
+
+```text
+X_train.npy → Training image patches
+Y_train.npy → Training segmentation masks
+X_val.npy   → Validation image patches
+Y_val.npy   → Validation segmentation masks
+```
+
+These processed datasets are later used as inputs for training the **3D U-Net** and **3D Attention U-Net** models.
+
 
 ### Augmentations Used
 
@@ -162,20 +336,66 @@ These preprocessing steps help improve robustness and reduce overfitting.
 
 ### 1. 3D U-Net
 
-A baseline **3D U-Net** model was implemented for volumetric medical image segmentation.
 
-Key Features:
 
-* Encoder–decoder architecture
-* Skip connections for feature preservation
-* Volumetric feature extraction
-* Pixel-level segmentation
+The baseline model is a **3D U-Net** with 2 encoder levels and 2 decoder levels.
 
+```
+Input (1 × 16 × 128 × 128)
+        │
+   DoubleConv → 32 ch                 ← skip x1
+        │
+   MaxPool3d + DoubleConv → 64 ch     ← skip x2
+        │
+   MaxPool3d + DoubleConv → 128 ch    (bottleneck)
+        │
+   ConvTranspose3d + concat(x2) + DoubleConv → 64 ch
+        │
+   ConvTranspose3d + concat(x1) + DoubleConv → 32 ch
+        │
+   Conv3d(1×1×1) → 3 classes
+
+```
+**DoubleConv block:**
+```
+Conv3d → BatchNorm3d → ReLU → Conv3d → BatchNorm3d → ReLU
+```
+
+**Weight Initialization:** Kaiming Normal for all `Conv3d` layers; biases set to zero.
+
+### Key Components
+
+- `DoubleConv`: two consecutive 3×3×3 convolutions with BN + ReLU
+- `Down`: `MaxPool3d(2)` followed by `DoubleConv`
+- `Up
 ---
 
 ### 2. 3D Attention U-Net
 
 An enhanced **3D Attention U-Net** was implemented to improve segmentation precision.
+
+
+ The Attention U-Net extends the standard U-Net with **Attention Gates** on every skip connection. These gates learn to suppress irrelevant feature activations before they are concatenated in the decoder.
+
+```
+Input (1 × 16 × 128 × 128)
+        │
+   DoubleConv → 32 ch                     ← skip x1
+        │
+   MaxPool3d + DoubleConv → 64 ch         ← skip x2
+        │
+   MaxPool3d + DoubleConv → 128 ch        ← skip x3
+        │
+   MaxPool3d + DoubleConv → 256 ch        (bottleneck)
+        │
+   ConvTranspose3d + AttGate(x3) + DoubleConv → 128 ch
+        │
+   ConvTranspose3d + AttGate(x2) + DoubleConv → 64 ch
+        │
+   ConvTranspose3d + AttGate(x1) + DoubleConv → 32 ch
+        │
+   Conv3d(1×1×1) → 3 classes
+```
 
 Additional Features:
 
@@ -183,38 +403,75 @@ Additional Features:
 * Better focus on tumor regions
 * Reduced background interference
 * Improved boundary localization
+The Attention U-Net is **one level deeper** than the standard U-Net (256-channel bottleneck vs 128), giving it greater representational capacity.
 
-The Attention U-Net architecture performed better for difficult tumor regions due to selective feature learning.
 
 ---
 
 ## Loss Function
 
-A **Combined Loss Function** was used:
+To handle **class imbalance** in liver tumor segmentation, a **Combined Loss Function** was used by integrating **Weighted Cross-Entropy Loss** with **Soft Dice Loss**.
 
-### Dice Loss
+### Combined Loss
 
-Used for improving overlap between predicted and ground truth segmentation masks.
+```text
+L_total = L_CE + L_Dice
+```
 
-### Weighted Cross Entropy Loss
+### Weighted Cross-Entropy Loss
 
-Used to address severe class imbalance.
+Class weights were assigned to improve learning for underrepresented tumor regions:
 
-**Class Weights:**
+```python
+weight = [0.2, 0.3, 0.5]
+# Background, Liver, Tumor
+```
 
-* Background → 0.2
-* Liver → 0.3
-* Tumor → 0.5
+A higher weight was given to the **tumor class** to reduce imbalance between background, liver, and tumor voxels.
+
+### Soft Dice Loss
+
+Dice Loss was computed on **foreground classes (Liver + Tumor)** to improve overlap between predicted and ground-truth segmentation masks.
+
+$$
+L_{\text{Dice}} =
+\frac{1}{C}
+\sum_{c=1}^{C}
+\left(
+1 -
+\frac{
+2 \sum p_c \cdot t_c + \varepsilon
+}{
+\sum p_c + \sum t_c + \varepsilon
+}
+\right)
+$$
+
+where:
+
+* **p₍c₎** → predicted softmax probability
+* **t₍c₎** → ground truth target
+* **ε** → small constant to avoid division by zero
+
+### Why Combined Loss?
+
+* **Cross-Entropy Loss** → improves voxel-wise classification
+* **Dice Loss** → improves segmentation overlap
+
+Together, they improve **tumor boundary detection** and overall segmentation performance.
+
+
+### Evaluation Metrics
+
+**Dice Score (per class):**
+$$\text{Dice}_c = \frac{2 \cdot |P_c \cap T_c| + \varepsilon}{|P_c| + |T_c| + \varepsilon}$$
+
+**IoU / Jaccard Score (per class):**
+$$\text{IoU}_c = \frac{|P_c \cap T_c|}{|P_c \cup T_c|}$$
+
+Reported per class (Background, Liver, Tumor) as well as **Mean Dice (Liver + Tumor)** as the primary model selection criterion.
 
 ---
-
-## Evaluation Metrics
-
-Model performance was evaluated using:
-
-* **Dice Similarity Coefficient (DSC)**
-* **Intersection over Union (IoU)**
-* **Validation Accuracy**
 
 These metrics provide both overlap-based and region-based performance evaluation.
 
@@ -243,6 +500,167 @@ tumor-segmentation/
 │── requirements.txt
 │── sample_outputs/
 ```
+---
+## Installation & Setup
+
+### 1. Clone the Repository
+
+```bash
+git clone https://github.com/your-username/liver-tumor-segmentation.git
+cd liver-tumor-segmentation
+```
+
+---
+
+### 2. Create a Virtual Environment
+
+#### Windows
+
+```bash
+python -m venv venv
+venv\Scripts\activate
+```
+
+#### macOS / Linux
+
+```bash
+python3 -m venv venv
+source venv/bin/activate
+```
+
+---
+
+### 3. Install Dependencies
+
+Install all required libraries:
+
+```bash
+pip install -r requirements.txt
+```
+
+Or manually:
+
+```bash
+pip install torch torchvision torchaudio
+pip install numpy matplotlib scikit-learn nibabel opencv-python
+pip install jupyter notebook
+```
+
+---
+
+### 4. Download the Dataset
+
+This project uses the **LiTS (Liver Tumor Segmentation)** dataset.
+
+Download both parts from Kaggle:
+
+* **Part 1:** https://www.kaggle.com/datasets/andrewmvd/liver-tumor-segmentation
+* **Part 2:** https://www.kaggle.com/datasets/andrewmvd/liver-tumor-segmentation-part-2
+
+**Both parts together form the complete dataset.**
+
+After downloading, organize the dataset as:
+
+```text
+dataset/
+├── images/
+│   ├── volume-0.nii
+│   ├── volume-1.nii
+│   └── ...
+│
+├── masks/
+│   ├── segmentation-0.nii
+│   ├── segmentation-1.nii
+│   └── ...
+```
+
+---
+
+### 5. GPU Setup (Recommended)
+
+Training 3D segmentation models is computationally intensive, so **GPU (CUDA)** is recommended.
+
+Verify GPU availability:
+
+```python
+import torch
+
+print(torch.cuda.is_available())
+print(torch.cuda.get_device_name(0))
+```
+
+Expected output:
+
+```text
+True
+NVIDIA GPU Name
+```
+
+If no GPU is detected, training will automatically run on CPU (slower).
+
+---
+
+## How to Run
+
+### Step 1 — Launch Jupyter Notebook
+
+```bash
+jupyter notebook
+```
+
+---
+
+### Step 2 — Data Preprocessing
+
+Open and run all cells in **`data_cleaning1.ipynb`**.
+
+Update dataset paths:
+
+```python
+image_dir = "path/to/images"
+mask_dir = "path/to/masks"
+```
+
+This notebook will:
+
+* Load CT volumes and masks
+* Apply preprocessing (HU clipping, normalization, empty slice removal)
+* Generate 3D patches
+* Create train–validation split
+* Save:
+
+```text
+X_train.npy
+Y_train.npy
+X_val.npy
+Y_val.npy
+```
+
+---
+
+### Step 3 — Train the 3D Attention U-Net
+
+Open and run all cells in **`attention_unet1.ipynb`**.
+
+The notebook will:
+
+* Load preprocessed datasets
+* Train the **3D Attention U-Net**
+* Compute **Dice Score** and **IoU** metrics
+* Save the trained model checkpoint
+
+---
+
+### Step 4 — Run Inference
+
+Update the paths:
+
+```python
+img_path = "path/to/volume.nii"
+mask_path = "path/to/segmentation.nii"
+```
+
+Run the inference and visualization cells to generate predicted segmentation masks.
 
 ---
 
@@ -254,9 +672,16 @@ The project demonstrates successful segmentation of:
 * Tumor regions
 * Volumetric CT structures
 
-Performance evaluation was conducted using **Dice Score** and **IoU metrics**.
 
-> Add prediction screenshots in the `sample_outputs/` folder for stronger GitHub presentation.
+
+<img width="567" height="455" alt="image" src="https://github.com/user-attachments/assets/2273a933-347e-4dea-9b65-713d29a76290" />
+<img width="567" height="455" alt="image" src="https://github.com/user-attachments/assets/ab2e5129-7d0d-4ff0-abe2-94a8741d1f53" />
+<img width="567" height="455" alt="image" src="https://github.com/user-attachments/assets/24a8abdf-4f60-4733-8e2e-0c2c81a95613" />
+<img width="584" height="455" alt="image" src="https://github.com/user-attachments/assets/2f413679-8815-4181-9033-07612be1ebb5" />
+
+<img width="1013" height="316" alt="image" src="https://github.com/user-attachments/assets/5ef44847-7445-44e3-9a89-ffec44ce5ce8" />
+<img width="950" height="315" alt="image" src="https://github.com/user-attachments/assets/57dcd10d-d9a9-43df-9d25-c63dbf738103" />
+<img width="567" height="435" alt="image" src="https://github.com/user-attachments/assets/8b15449e-17da-4efa-8dc3-251847d2f605" />
 
 ---
 
