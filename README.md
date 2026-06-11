@@ -694,5 +694,8 @@ The project demonstrates successful segmentation of:
 * Real-time clinical deployment optimization
 
 ---
+> **Computational Note:**
+> Due to the high computational cost of **3D medical image segmentation**, experiments in this project were conducted on a **subset of 10 LiTS volumes**, which could be trained efficiently on a laptop GPU (**NVIDIA RTX 4060 Laptop GPU, CUDA 12.1**).
+> Training on the complete **LiTS dataset (131 training volumes)** would require significantly higher memory and compute resources, typically a **high-memory workstation or cloud GPU environment** for efficient training.
 
 
