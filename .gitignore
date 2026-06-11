@@ -1,0 +1,10 @@
+*.npy
+*.pth
+data/
+train_patches/
+val_patches/
+valid_patches/
+models/
+model.zip/
+*.zip
+__pycache__/
