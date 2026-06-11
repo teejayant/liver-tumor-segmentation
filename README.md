@@ -695,7 +695,7 @@ The project demonstrates successful segmentation of:
 
 ---
 > **Computational Note:**
-> Due to the high computational cost of **3D medical image segmentation**, experiments in this project were conducted on a **subset of 10 LiTS volumes**, which could be trained efficiently on a laptop GPU (**NVIDIA RTX 4060 Laptop GPU, CUDA 12.1**).
-> Training on the complete **LiTS dataset (131 training volumes)** would require significantly higher memory and compute resources, typically a **high-memory workstation or cloud GPU environment** for efficient training.
+> Due to the high computational cost of **3D medical image segmentation**, experiments in this project were performed on a **10-volume subset of the LiTS dataset**, which could be trained efficiently on an **NVIDIA RTX 4060 Laptop GPU (CUDA 12.1)**.
+> Training on the complete **LiTS dataset (131 training volumes)** for **3D U-Net / 3D Attention U-Net** would require a **high-memory workstation or cloud GPU**, such as an **NVIDIA RTX A5000, NVIDIA A100, or equivalent**, for efficient large-scale training.
 
 
