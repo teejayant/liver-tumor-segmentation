@@ -36,7 +36,7 @@ The objective of this project is to build an automated framework capable of accu
 
 ### LiTS (Liver Tumor Segmentation Challenge)
 
-The project uses the **LiTS dataset**, a publicly available benchmark dataset for liver tumor segmentation.
+The project uses the **LiTS dataset**, a publicly available benchmark dataset of 3D CT scans for liver tumor segmentation.
 
 ### Dataset Details
 
@@ -54,13 +54,41 @@ The project uses the **LiTS dataset**, a publicly available benchmark dataset fo
 | 1     | Liver      |
 | 2     | Tumor      |
 
+
 ### File Format
 
-* **Format:** `.nii / .nii.gz` (NIfTI)
-* **3D Volumetric Medical Images**
-* Expert-annotated segmentation masks
+* **Format:** NIfTI (`.nii`, `.nii.gz`)
+* **Data Type:** 3D Volumetric CT Scans
+* **Volume Shape:** `(Height × Width × Slices)`
+* **Metadata Included:**
 
----
+  * Spatial resolution (voxel spacing)
+  * Image orientation
+  * Anatomical positioning information
+
+Each CT scan is paired with a corresponding **ground-truth segmentation mask**, ensuring a one-to-one relationship between medical images and annotations.
+
+### Directory Structure
+
+```text
+dataset/
+├── images/
+│   ├── volume-0.nii
+│   ├── volume-1.nii
+│   └── ...
+│
+├── labels/
+│   ├── segmentation-0.nii
+│   ├── segmentation-1.nii
+│   └── ...
+```
+
+### Data Organization
+
+* `images/` → Raw abdominal CT scan volumes
+* `labels/` → Expert-annotated segmentation masks
+* **One-to-one mapping** between each CT volume and its corresponding mask
+
 
 ## Tech Stack
 
